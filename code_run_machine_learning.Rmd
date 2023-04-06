@@ -1,0 +1,536 @@
+---
+title: "Machine learning code"
+output: html_document
+---
+
+## 1. Load the data
+```{r , include=FALSE}
+setwd("~/Microbiome_response/Machine_learning")
+pacman::p_load(
+  ggsci,
+  ggsignif,
+  tidyverse,
+  dplyr,
+  MLeval,
+  stringr,
+  gplots,
+  pheatmap,
+  RColorBrewer,
+  data.table,
+  devtools,
+  vegan,
+  caret,
+  pROC
+)
+
+# Load the sample response classification
+all <- read.csv('samples_response_classification.csv') %>% data.frame()
+validation <- all[grepl('V' , all$study),]
+intervention <- all[grepl('I' , all$study),]
+all <- rbind(validation, intervention)
+rownames(all) <- gsub( 'I.*_',  '', all$subject)
+
+# Select only the class and study columns
+all <- all[,c('classification', 'study')]
+colnames(all) <- c('classification', 'Study')
+
+# Load new validation data response
+all_validations <- read.csv('more_samples_response_classification.csv')
+all_validations$subject
+rownames(all_validations) <- all_validations$subject
+all_validations <- all_validations[,c('classification', 'Study')]
+aggregate(all_validations$classification, as.list(all_validations[,c(2,1)]), table)
+
+# We keep responders and non responders
+all <- subset(all, classification!='Indeterminate')
+all_validations <- subset(all_validations, classification!='Mediated-responder')
+
+# Full classification dataframe
+full_classificaton <- rbind(all[,c('classification','Study')], all_validations)
+
+# LOAD TAXONOMIC DATA ---------------------------------------------------------------
+# Species
+data_s3.1 <- read.table('/study3.1/study3.1_metaphlan_merged_abundance_table_species.txt', row.names = 1, header = T) %>% t() %>% data.frame()
+rownames(data_s3.1) <- gsub('_metaphlan_bowtie2', '', rownames(data_s3.1))
+
+data_s3.2 <- read.table('/study3.2/study3.2_metaphlan_merged_abundance_table_species.txt', row.names = 1, header = T) %>% t() %>% data.frame()
+rownames(data_s3.2) <- gsub('_metaphlan_bowtie2', '', rownames(data_s3.2))
+
+data_s3.3 <- read.table('/study3.3/study3.3_metaphlan_merged_abundance_table_species.txt', row.names = 1, header = T) %>% t() %>% data.frame()
+rownames(data_s3.3) <- gsub('_metaphlan_bowtie2', '', rownames(data_s3.3))
+
+data_s3.4 <- read.table('/study3.4/study3.4_metaphlan_merged_abundance_table_species.txt', row.names = 1, header = T) %>% t() %>% data.frame()
+rownames(data_s3.4) <- gsub('_metaphlan_bowtie2', '', rownames(data_s3.4))
+
+data_s3.5 <- read.table('/study3.5/study3.5_metaphlan_merged_abundance_table_species.txt', row.names = 1, header = T) %>% t() %>% data.frame()
+rownames(data_s3.5) <- gsub('_metaphlan_bowtie2', '', rownames(data_s3.5))
+
+data_sVal_IBD <- read.table('/study_val_IBD/study_val_IBD_metaphlan_merged_abundance_table_species.txt', row.names = 1, header = T) %>% t() %>% data.frame()
+rownames(data_sVal_IBD) <- gsub('_metaphlan_bowtie2', '', rownames(data_sVal_IBD))
+
+data_sVal_WGD <- read.table('/study_val_WGD/study_val_WG_first_metaphlan_merged_abundance_table_species.txt', row.names = 1, header = T) %>% t() %>% data.frame()
+rownames(data_sVal_WGD) <- gsub('_metaphlan_bowtie2', '', rownames(data_sVal_WGD))
+
+# Rename the dataframes
+data_s3.1_selected <- data_s3.1
+data_s3.2_selected <- data_s3.2
+data_s3.3_selected <- data_s3.3
+data_s3.4_selected <- data_s3.4
+data_s3.5_selected <- data_s3.5
+data_sVal_IBD_selected <- data_sVal_IBL
+data_sVal_WGD_selected <- data_sVal_WGD
+
+# Genus
+data_s3.1_genus <- read.table('study3.1/study3.1_metaphlan_merged_abundance_table_genus.txt', row.names = 1, header = T) %>% t() %>% data.frame()
+rownames(data_s3.1_genus) <- gsub('_metaphlan_bowtie2', '', rownames(data_s3.1_genus))
+
+data_s3.2_genus <- read.table('study3.2/study3.2_metaphlan_merged_abundance_table_genus.txt', row.names = 1, header = T) %>% t() %>% data.frame()
+rownames(data_s3.2_genus) <- gsub('_metaphlan_bowtie2', '', rownames(data_s3.2_genus))
+
+data_s3.3_genus <- read.table('study3.3/study3.3_metaphlan_merged_abundance_table_genus.txt', row.names = 1, header = T) %>% t() %>% data.frame()
+rownames(data_s3.3_genus) <- gsub('_metaphlan_bowtie2', '', rownames(data_s3.3_genus))
+
+data_s3.4_genus <- read.table('study3.4/study3.4_metaphlan_merged_abundance_table_genus.txt', row.names = 1, header = T) %>% t() %>% data.frame()
+rownames(data_s3.4_genus) <- gsub('_metaphlan_bowtie2', '', rownames(data_s3.4_genus))
+
+data_s3.5_genus <- read.table('study3.5/study3.5_metaphlan_merged_abundance_table_genus.txt', row.names = 1, header = T) %>% t() %>% data.frame()
+rownames(data_s3.5_genus) <- gsub('_metaphlan_bowtie2', '', rownames(data_s3.5_genus))
+
+data_sVal_IBD_genus <- read.table('study_val_IBD/study_val_IBD_metaphlan_merged_abundance_table_genus.txt', row.names = 1, header = T) %>% t() %>% data.frame()
+rownames(data_sVal_IBD_genus) <- gsub('_metaphlan_bowtie2', '', rownames(data_sVal_IBD_genus))
+
+data_sVal_WGD_genus <- read.table('study_val_WG/study_val_WG_first_metaphlan_merged_abundance_table_genus.txt', row.names = 1, header = T) %>% t() %>% data.frame()
+rownames(data_sVal_WGD_genus) <- gsub('_metaphlan_bowtie2', '', rownames(data_sVal_WGD_genus))
+
+# Rename the dataframes
+data_s3.1_selected_genus <- data_s3.1_genus
+data_s3.2_selected_genus <- data_s3.2_genus
+data_s3.3_selected_genus <- data_s3.3_genus
+data_s3.4_selected_genus <- data_s3.4_genus
+data_s3.5_selected_genus <- data_s3.5_genus
+data_sVal_IBD_selected_genus <- data_sVal_IBL_genus
+data_sVal_WGD_selected_genus <- data_sVal_WGD_genus
+
+# METADATA AT BASELINE ---------------------------------------------------------------
+metadata_s3.1 <- read.csv('study3.1/study3.1-subject-timepoint.txt', stringsAsFactors = T) %>% data.frame()
+metadata_s3.1 <- subset(metadata_s3.1, timepoint==0)
+metadata_s3.1$timepoint <- factor(metadata_s3.1$timepoint)
+metadata_s3.2 <- read.csv('study3.2/study3.2-subject-timepoint.txt', stringsAsFactors = T) %>% data.frame()
+metadata_s3.2 <- subset(metadata_s3.2, timepoint==0)
+metadata_s3.2$subject <- factor(metadata_s3.2$subject)
+metadata_s3.2$timepoint <- factor(metadata_s3.2$timepoint)
+metadata_s3.3 <- read.csv('sstudy3.3/tudy3.3-subject-timepoint.txt', stringsAsFactors = T) %>% data.frame()
+metadata_s3.3 <- subset(metadata_s3.3, timepoint=='W1')
+metadata_s3.3$subject <- factor(metadata_s3.3$subject)
+metadata_s3.4 <- read.csv('study3.4/study3.4-subject-timepoint.txt', stringsAsFactors = T) %>% data.frame()
+metadata_s3.4 <- subset(metadata_s3.4, timepoint=='W0')
+metadata_s3.5 <- read.csv('study3.5/study3.5-subject-timepoint.txt', stringsAsFactors = T) %>% data.frame()
+metadata_s3.5 <- subset(metadata_s3.5, timepoint=='W0')
+metadata_s3.5$X <- gsub('-', '.', metadata_s3.5$X)
+metadata_sVal_IBD <- read.csv('study_val_IBD/study_val_IBD_metadata_subject_timepoint.csv', stringsAsFactors = T) %>% data.frame()
+metadata_sVal_IBD <- subset(metadata_sVal_IBD, timepoint=='Baseline')
+metadata_sVal_WGD <- read.csv('study_val_WG//study_val_WG_first_metadata_subject_timepoint.csv', stringsAsFactors = T) %>% data.frame()
+metadata_sVal_WGD$subject <- paste('first_', metadata_sVal_WGDt$subject, sep = '')
+metadata_sVal_WGD$subject <- factor(metadata_sVal_WGD$subject)
+metadata_sVal_WGD <- subset(metadata_sVal_WGD, timepoint=='Baseline')
+
+metadata_all <- rbind(metadata_s3.1, metadata_s3.2, metadata_s3.3, metadata_s3.4, metadata_s3.5, metadata_sVal_IBD, metadata_sVal_WGD)
+rownames(metadata_all) <- metadata_all$subject
+
+# METADATA AFTER ---------------------------------------------------------------
+metadata_s3.1 <- read.csv('study3.1/study3.1-subject-timepoint.txt', stringsAsFactors = T) %>% data.frame()
+metadata_s3.1 <- subset(metadata_s3.1, timepoint==3)
+metadata_s3.1$timepoint <- factor(metadata_s3.1$timepoint)
+metadata_s3.2 <- read.csv('study3.2/study3.2-subject-timepoint.txt', stringsAsFactors = T) %>% data.frame()
+metadata_s3.2 <- subset(metadata_s3.2, timepoint==14)
+metadata_s3.2$subject <- factor(metadata_s3.2$subject)
+metadata_s3.2$timepoint <- factor(metadata_s3.2$timepoint)
+metadata_s3.3 <- read.csv('study3.3/study3.3-subject-timepoint.txt', stringsAsFactors = T) %>% data.frame()
+metadata_s3.3 <- subset(metadata_s3.3, timepoint=='W12')
+metadata_s3.3$subject <- factor(metadata_s3.3$subject)
+metadata_s3.4 <- read.csv('study3.4/study3.4-subject-timepoint.txt', stringsAsFactors = T) %>% data.frame()
+metadata_s3.4 <- subset(metadata_s3.4, timepoint=='W16')
+metadata_s3.5 <- read.csv('study3.5/study3.5-subject-timepoint.txt', stringsAsFactors = T) %>% data.frame()
+metadata_s3.5 <- subset(metadata_s3.5, timepoint=='W12')
+metadata_s3.5$X <- gsub('-', '.', metadata_s3.5$X)
+metadata_sVal_IBD <- read.csv('study_val_IBD/study_val_IBD_metadata_subject_timepoint.csv', stringsAsFactors = T) %>% data.frame()
+metadata_sVal_IBD <- subset(metadata_sVal_IBD, timepoint=='After')
+metadata_sVal_WGD <- read.csv('study_val_WG/study_val_WG_first_metadata_subject_timepoint.csv', stringsAsFactors = T) %>% data.frame()
+metadata_sVal_WGD$subject <- paste('first_', metadata_sVal_WGD$subject, sep = '')
+metadata_sVal_WGD$subject <- factor(metadata_sVal_WGD$subject)
+metadata_sVal_WGD <- subset(metadata_sVal_WGD, timepoint=='After')
+
+metadata_all_after <- rbind(metadata_s3.1, metadata_s3.2, metadata_s3.3, metadata_s3.4, metadata_s3.5, metadata_sVal_IBD, metadata_sVal_WGD)
+rownames(metadata_all_after) <- metadata_all_after$subject
+
+# Taxonomic data with the initial samples - SPECIES
+all_taxa <- rbind.fill(data_s3.1_selected, data_s3.2_selected, data_s3.3_selected, data_s3.4_selected, 
+                       data_s3.5_selected, data_sVal_IBD_selected, data_sVal_WGD_selected)
+rownames <-c(rownames(data_s3.1_selected), rownames(data_s3.2_selected), rownames(data_s3.3_selected), rownames(data_s3.4_selected),
+             rownames(data_s3.5_selected), rownames(data_sVal_IBD_selected), rownames(data_sVal_WGD_selected)) 
+rownames(all_taxa) <- rownames
+
+all_data_taxonomy <- all_taxa[c(as.character(metadata_all[rownames(full_classificaton),'X'])),]
+all_data_taxonomy[is.na(all_data_taxonomy)] <- 0
+
+# Taxonomic data with the initial samples - GENUS
+all_taxa_genus <- rbind.fill(data_s3.1_selected_genus, data_s3.2_selected_genus, data_s3.3_selected_genus, data_s3.4_selected_genus, 
+                       data_s3.5_selected_genus, data_sVal_IBD_selected_genus, data_sVal_WGD_selected_genus)
+rownames <-c(rownames(data_s3.1_selected_genus), rownames(data_s3.2_selected_genus), rownames(data_s3.3_selected_genus), rownames(data_s3.4_selected_genus),
+             rownames(data_s3.5_selected_genus), rownames(data_sVal_IBD_selected_genus), rownames(data_sVal_WGD_selected_genus)) 
+rownames(all_taxa_genus) <- rownames
+
+all_data_taxonomy_genus <- all_taxa_genus[c(as.character(metadata_all[rownames(full_classificaton),'X'])),]
+all_data_taxonomy_genus[is.na(all_data_taxonomy_genus)] <- 0
+
+# Full data (train/test/validation)
+targets <- cbind(all_data_taxonomy_species[as.character(metadata_all[rownames(full_classificaton),'X']),], all_data_taxonomy_genus[as.character(metadata_all[rownames(full_classificaton),'X']),], full_classificaton)
+targets_genus <- cbind(all_data_taxonomy_genus[as.character(metadata_all[rownames(full_classificaton),'X']),], full_classificaton)
+targets_species <- cbind(all_data_taxonomy_species[as.character(metadata_all[rownames(full_classificaton),'X']),], full_classificaton)
+
+# Rename the classification as R/NR
+targets$classification <- ifelse(targets$classification=='Responder', 'R', 'NR')
+targets$classification <- factor(targets$classification)
+targets_species$classification <- factor(targets_species$classification)
+targets_genus$classification <- factor(targets_genus$classification)
+
+# External validation data
+targets_val_IBD <- subset(targets, Study=='IBDAID')
+targets_val_WGD <- subset(targets, Study=='WG_first')
+
+# Internal data (train/test)
+targets <- subset(targets, Study!='IBDAID' & Study!='WG_first')
+
+# We remove the species that have the same abundances as the genus that they belong 
+taxa <- read.csv('spe_gen_for_taxonomic.csv')
+targets <- targets[, c( as.character(taxa$x), c('classification','Study'))]
+```
+
+## 2. Feature selection 
+```{r, include=T}
+set.seed(1)
+
+# Create 100 partitions
+partition <- createDataPartition(targets$classification, p = 0.8, times = 100, list = T)
+# Model control -------------------------------------------------------------------------------
+set.seed(100)
+ctrl <- rfeControl(
+  functions=rfFuncs,
+  method = "LOOCV"
+)
+
+# Create the result dataframe
+result <- rep(NA, times=50)
+
+for (part in partition[1:100]) {
+  train <- targets[part,]
+  test <- targets[-part,]
+  
+  df_train_final <- train[, !(names(train) %in% c('study', 'classification') )]
+  df_test_final <- test[, !(names(test) %in% c('study', 'classification') )]
+  
+  results_rfe <- rfe(df_train_final, train$classification, sizes=c(50), rfeControl=ctrl)
+  top50_RFE <-  results_rfe$variables$var[1:50]
+  result <- rbind(result, top50_RFE)
+}
+```
+
+```{r}
+# Feature selection results saved in a .txt
+write.table(result, '100splits_FS_50rfe_gbm-taxaData.txt')
+```
+
+## 3. Run the model using the the pervious feature selction
+```{r, include=F}
+# IMPORTANT - Use the same seed as in previous chuck to create the data partitions
+result_meassures <- data.frame(matrix(ncol = 6, nrow = 0))
+colnames(result_meassures) <- c('train_sens', 'train_spec', 'train_AUC', 'test_sens', 'test_spec', 'test_AUC')
+
+# In each partition we we select the taxa from the feature selection results
+species_selected <- read.table('100splits_FS_50rfe_gbm-taxaData.txt', sep=' ', header = T, row.names = NULL)[-1,-1]
+rownames_part <- paste('partition', 1:100, sep='')
+rownames(species_selected) <- rownames_part
+species_selected <- t(species_selected) %>% data.frame()
+
+# How many features I want to select for the model
+n <- 30
+
+# Create partitions using same seed as for the feature selection
+set.seed(1)
+partition <- createDataPartition(targets$classification, p = 0.8, times = 100, list = T)
+
+# Model control -------------------------------------------------------------------------------
+set.seed(100)
+ctrl <- trainControl(
+  method = "LOOCV",
+  search = "random",
+  returnResamp = "final",
+  savePredictions = 'final',
+  classProbs = TRUE,
+  allowParallel = TRUE,
+  summaryFunction = twoClassSummary,
+)
+
+# List to save the 100 train/test models for future plotting and result calculations
+ggplots_train <- list()
+ggplots_test <- list()
+
+for (i in c(1:100)) {
+
+  train <- targets[partition[[i]],]
+  test <- targets[-partition[[i]],]
+  
+  # Keep only the pedictors
+  df_train_final <- train[, !(names(train) %in% c('study', 'classification') )]
+  df_test_final <- test[, !(names(test) %in% c('study', 'classification') )]
+  
+  top30 <-  species_selected[1:n,i] %>%  as.character()
+
+  set.seed(100)
+  gbmGrid <-  expand.grid(interaction.depth = c(15, 18, 20), 
+                    n.trees = c(150, 200, 250, 290),  
+                    shrinkage = c(0.1, 0.25, 0.4), 
+                    n.minobsinnode = c(15, 18, 20)  
+                    )
+                      
+  set.seed(100)
+  ranger_model <-
+    caret::train(
+      x = df_train_final[,top30],
+      y = train$classification,
+      trControl = ctrl,
+      method = "gbm", 
+      metric = "ROC",
+      tuneGrid = gbmGrid 
+  )
+    
+    train_ranger <- evalm(ranger_model, silent = T, showplots = F)
+    train_sens <- train_ranger$optres$`Group 1`$Score[1]
+    train_spec <- train_ranger$optres$`Group 1`$Score[2]
+    train_AUC <- train_ranger$optres$`Group 1`$Score[13]
+
+    # test
+    pred <- predict(ranger_model, newdata=df_test_final[,top30], type="prob")
+    test_ranger <- evalm(data.frame(pred, test[, 'classification']), silent = T, showplots = F)
+    test_sens <- test_ranger$optres$Group1$Score[1]
+    test_spec <- test_ranger$optres$Group1$Score[2]
+    test_AUC <- test_ranger$optres$Group1$Score[13]
+
+    all2 <- data.frame(train_sens, train_spec, train_AUC, test_sens, test_spec, test_AUC)
+    result_meassures <- rbind(result_meassures, all2)
+
+    name <- paste('gg',i, sep = '_')
+    train_ranger$probs$`Group 1`$split <- rep(paste('split', i, sep = ''))
+    test_ranger$probs$Group1$split <- rep(paste('split', i, sep = ''))
+    ggplots_train[[name]] <- train_ranger$probs$`Group 1`
+    ggplots_test[[name]] <- test_ranger$probs$Group1
+}
+```
+
+```{r}
+# Save results
+save(result_meassures, ggplots_train, ggplots_test, file = "plots/100models_taxonomic_grid.RData")
+```
+
+## 4. Run the final model - same model as defined before but we provide all the data to the model
+
+### 4.1. Feature selection 
+```{r, include=T}
+# Model control -------------------------------------------------------------------------------
+set.seed(100)
+ctrl <- rfeControl(
+  functions=rfFuncs,
+  method = "LOOCV",
+  verbose = FALSE,
+  rerank = TRUE
+)
+
+  train <- targets
+  df_train_final <- train[, !(names(train) %in% c('Study', 'classification') )]
+  results_rfe <- rfe(df_train_final, train$classification, sizes=c(50), rfeControl=ctrl)
+  top50_RFE <- results_rfe$variables$var[1:50]
+```
+
+### 4.2. Run the model usning the species selected in the split 
+```{r, include=F}
+species_selected <- top50_RFE
+# Model control -------------------------------------------------------------------------------
+set.seed(100)
+ctrl <- trainControl(
+  method = "LOOCV",
+  search = "random",
+  verboseIter = TRUE,
+  returnResamp = "final",
+  savePredictions = 'final',
+  classProbs = TRUE,
+  allowParallel = TRUE,
+  summaryFunction = twoClassSummary,
+)
+
+ggplots_train <- list()
+
+  train <- targets
+  
+  # Keep only the predictors
+  df_train_final <- train[, !(names(train) %in% c('Study', 'classification') )]
+  top30 <- species_selected[1:30] %>%  as.character()
+  
+  set.seed(100)
+  gbmGrid <-  expand.grid(interaction.depth = c(20), 
+                       n.trees = c(290), 
+                       shrinkage = c(0.4), 
+                       n.minobsinnode = c(20) 
+                       )
+
+  set.seed(100) 
+  ranger_model_final <-
+    caret::train(
+      x = df_train_final[,top30],
+      y = train$classification,
+      trControl = ctrl,
+      method = "gbm", 
+      metric = "ROC",
+      tuneGrid = gbmGrid 
+  )
+       
+    train_ranger <- evalm(ranger_model_final, silent = T, showplots = F)
+    train_ranger_final <- train_ranger
+    train_sens_final <- train_ranger_final$optres$`Group 1`$Score[1]
+    train_spec_final <- train_ranger_final$optres$`Group 1`$Score[2]
+    train_AUC_final <- train_ranger_final$optres$`Group 1`$Score[13]
+```
+
+### 4.3. External validation of the final model 
+```{r}
+df_testVal <- targets_val_IBD
+  pred <- predict(ranger_model_final, newdata=df_testVal, type="prob")
+  test_ranger_validation_IBD <- evalm(data.frame(pred, df_testVal[, 'classification']), silent = T, showplots = F)
+  test_sens_IBD <- test_ranger_validation_IBD$optres$Group1$Score[1]
+  test_spec_IBD <- test_ranger_validation_IBD$optres$Group1$Score[2]
+  test_AUC_IBD <- test_ranger_validation_IBD$optres$Group1$Score[13]
+
+df_testVal <- targets_val_WGD
+  pred <- predict(ranger_model_final, newdata=df_testVal, type="prob")
+  test_ranger_validation_WGD <- evalm(data.frame(pred, df_testVal[, 'classification']), silent = T, showplots = F)
+  test_sens_WGD <- test_ranger_validation_WGD$optres$Group1$Score[1]
+  test_spec_WGD <- test_ranger_validation_WGD$optres$Group1$Score[2]
+  test_AUC_WGD <- test_ranger_validation_WGD$optres$Group1$Score[13]
+```
+
+### 4.4. Results plotting - confusion matrix and ROC curve
+#### Machine learning model - confusion matrix plot
+```{r}
+# Machine learning model
+cm <- train_ranger_final$optres$`Group 1` %>% dplyr::select(Score) %>% t() %>% as.data.frame() %>% dplyr::select(TP, FP, TN, FN) %>% remove_rownames()
+cm_df <- data.frame(Prediction=c('NR', 'R', 'NR', 'R'), Reference=c('NR', 'NR', 'R', 'R'), 
+                    Freq=c(cm$TN, cm$FP, cm$FN, cm$TP), Labels=c('Hit', 'Miss', 'Miss', 'Hit'))
+cm_plot_train <- ggplot(
+  data = cm_df %>% na.omit(),
+  mapping = aes(x = factor(Prediction, levels = c("R", "NR")), 
+                y = factor(Reference, levels = c("NR", "R")), 
+                fill = Labels)) +
+  geom_tile() +
+  geom_text(aes(label = Freq), vjust = 0.5, fontface = "bold", alpha = 1, size = 20) + 
+  coord_fixed() + 
+  scale_fill_manual(values = c(Hit = "forestgreen", Miss = "#e7fcbb")) +
+  scale_x_discrete(position = "top") +
+  labs(x = "Prediction", y = "Reference") + 
+  theme(
+    panel.background = element_blank(),
+    text = element_text(family = "Arial"),
+    axis.text = element_text(size = 40),
+    axis.ticks = element_blank(),
+    axis.title = element_text(face = "bold", size = 40),
+    plot.margin = unit(x = c(1, 1, 1, 1), units = "cm"),
+    legend.position = "none"
+  )
+
+ggsave(filename = "plots/cm_ML_model.pdf", plot = print(cm_plot_train), device = cairo_pdf, width = 20, height = 20, units = "cm")
+```
+
+#### External validation IBD-AID dataset - confusion matrix plot
+```{r}
+# External validation 
+cm <- test_ranger_validation_IBD$optres$Group1 %>% dplyr::select(Score) %>% t() %>% as.data.frame() %>% dplyr::select(TP, FP, TN, FN) %>% remove_rownames()
+cm_df <- data.frame(Prediction=c('NR', 'R', 'NR', 'R'), Reference=c('NR', 'NR', 'R', 'R'), 
+                    Freq=c(cm$TN, cm$FP, cm$FN, cm$TP), Labels=c('Hit', 'Miss', 'Miss', 'Hit'))
+cm_plot_train <- ggplot(
+  data = cm_df %>% na.omit(),
+  mapping = aes(x = factor(Prediction, levels = c("R", "NR")), 
+                y = factor(Reference, levels = c("NR", "R")), 
+                fill = Labels)) +
+  geom_tile() +
+  geom_text(aes(label = Freq), vjust = 0.5, fontface = "bold", alpha = 1, size = 20) + 
+  coord_fixed() + 
+  scale_fill_manual(values = c(Hit = "olivedrab3", Miss = "#e7fcbb")) +
+  scale_x_discrete(position = "top") +
+  labs(x = "Prediction", y = "Reference") + 
+  theme(
+    panel.background = element_blank(),
+    text = element_text(family = "Arial"),
+    axis.text = element_text(size = 40),
+    axis.ticks = element_blank(),
+    axis.title = element_text(face = "bold", size = 40),
+    plot.margin = unit(x = c(1, 1, 1, 1), units = "cm"),
+    legend.position = "none"
+  )
+
+ggsave(filename = "plots/cm_external_validation_IBD.pdf", plot = print(cm_plot_train), device = cairo_pdf, width = 20, height = 20, units = "cm")
+```
+
+#### External validation - WGD dataset - confusion matrix plot
+```{r}
+# external validation 
+cm <- test_ranger_validation_WGD$optres$Group1 %>% dplyr::select(Score) %>% t() %>% as.data.frame() %>% dplyr::select(TP, FP, TN, FN) %>% remove_rownames()
+cm_df <- data.frame(Prediction=c('NR', 'R', 'NR', 'R'), Reference=c('NR', 'NR', 'R', 'R'), 
+                    Freq=c(cm$TN, cm$FP, cm$FN, cm$TP), Labels=c('Hit', 'Miss', 'Miss', 'Hit'))
+cm_plot_train <- ggplot(
+  data = cm_df %>% na.omit(),
+  mapping = aes(x = factor(Prediction, levels = c("R", "NR")), 
+                y = factor(Reference, levels = c("NR", "R")), 
+                fill = Labels)) +
+  geom_tile() +
+  geom_text(aes(label = Freq), vjust = 0.5, fontface = "bold", alpha = 1, size = 20) + 
+  coord_fixed() + 
+  scale_fill_manual(values = c(Hit = "olivedrab3", Miss = "#e7fcbb")) +
+  scale_x_discrete(position = "top") +
+  labs(x = "Prediction", y = "Reference") + 
+  theme(
+    panel.background = element_blank(),
+    text = element_text(family = "Arial"),
+    axis.text = element_text(size = 40),
+    axis.ticks = element_blank(),
+    axis.title = element_text(face = "bold", size = 40),
+    plot.margin = unit(x = c(1, 1, 1, 1), units = "cm"),
+    legend.position = "none"
+  )
+
+ggsave(filename = "plots/cm_external_validation_WGD.pdf", plot = print(cm_plot_train), device = cairo_pdf, width = 20, height = 20, units = "cm")
+```
+
+#### ROC plot of ML model, IBD-AID external validation and WGD validation
+```{r}
+# Machine learning model
+group_final <- ifelse(train_ranger_final$probs$`Group 1`$obs=='R', 1,0)
+weight_final <- train_ranger_final$probs$`Group 1`$R
+roc_curve_species <- roc.curve(scores.class0 = weight_final, weights.class0 =  group_final, curve = T, rand.compute = TRUE)
+
+# IBD
+group_val_IBD <- ifelse(test_ranger_validation_IBD$probs$Group1$obs=='R', 1,0)
+weight_val_IBD <- test_ranger_validation_IBD$probs$Group1$R
+roc_curve_val_IBD <- roc.curve(scores.class0 = weight_val_IBD, weights.class0 =  group_val_IBD, curve = T, rand.compute = TRUE)
+
+# WGD
+group_val_WGD <- ifelse(test_ranger_validation_WGD$probs$Group1$obs=='R', 1,0)
+weight_val_WGD <- test_ranger_validation_WGD$probs$Group1$R
+roc_curve_val_WGD <- roc.curve(scores.class0 = weight_val_WGD, weights.class0 =  group_val_WGD, curve = T, rand.compute = TRUE)
+
+### TOGETHER
+pdf('plots/ROCs.pdf', width = 5, height = 5 )
+par(pty = "s")
+roc(group_final, weight_final, plot=TRUE, legacy.axes=TRUE, percent=TRUE, xlab="False Positive Percentage", ylab="True Postive Percentage", col="dodgerblue3", lwd=4, print.auc=TRUE)
+plot.roc(group_val_IBD, weight_val_IBD, percent=TRUE, col="forestgreen", lwd=4, print.auc=TRUE, add=TRUE, print.auc.y=45)
+plot.roc(group_val_WG, weight_val_WG, percent=TRUE, col="olivedrab3", lwd=4, print.auc=TRUE, add=TRUE, print.auc.y=40)
+legend("bottomright", legend=c("Final model", "External validation IBD", "External validation WGD" ), col=c('dodgerblue3',"forestgreen","olivedrab3"), lwd =4)
+dev.off()
+```
